@@ -118,6 +118,7 @@ from .parser_helpers import (
     _ts_nested_object_method_owner,
 )
 from .python_local_refs import extract_python_local_refs
+from .python_overload import is_python_overload as _is_python_overload
 from .sfc_source import component_call_sites, prepare_source
 from .special_handlers import SPECIAL_HANDLER_LANGUAGES, parse_special
 from .symbol_identity import disambiguate_colliding_ids, symbol_discriminator
@@ -518,23 +519,6 @@ def _match_identity(
         return None
     seen.add(dedup_key)
     return def_node, name_nodes, name, export_type, start_line
-
-
-# ``@overload`` stubs are signatures for the type checker; the undecorated def
-# that follows under the same id is the one that runs.
-def _is_python_overload(def_node: Node, src: str) -> bool:
-    parent = def_node.parent
-    if parent is None or parent.type != "decorated_definition":
-        return False
-    for decorator in parent.children:
-        if decorator.type != "decorator":
-            continue
-        # The expression, not the node text: a trailing comment sits inside it.
-        expr = next((c for c in decorator.named_children if c.type != "comment"), None)
-        # ``overload``, ``typing.overload``, or through an alias (``t.overload``).
-        if expr is not None and _node_text(expr, src).rsplit(".", 1)[-1] == "overload":
-            return True
-    return False
 
 
 _TS_OVERLOAD_SIGNATURES = frozenset({"function_signature", "method_signature"})

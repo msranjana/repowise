@@ -346,6 +346,65 @@ def test_python_class_cohesion():
     assert splintered.field_count == 2
 
 
+def _formatter_overload_class(overload_decorator: str) -> bytes:
+    return (
+        f"{overload_decorator}\n\n"
+        "class Formatter:\n"
+        "    def __init__(self):\n"
+        "        self.value = 0\n"
+        "        self.other = 1\n\n"
+        "    @overload\n"
+        "    def format(self, x: int) -> str: ...\n"
+        "    @overload\n"
+        "    def format(self, x: str) -> str: ...\n"
+        "    @overload\n"
+        "    def format(self, x: float) -> str: ...\n"
+        "    def format(self, x):\n"
+        "        return str(self.value) + str(x)\n\n"
+        "    def reset(self):\n"
+        "        self.other = 0\n"
+    ).encode()
+
+
+def _formatter_class_metrics(source: bytes):
+    _require_language("python")
+    classes = walk_file("formatter.py", "python", source).classes
+    if not classes:
+        pytest.skip("tree-sitter language pack missing for python")
+    fmt = next((c for c in classes if c.name == "Formatter"), None)
+    assert fmt is not None
+    return fmt
+
+
+def test_python_class_cohesion_ignores_overload_stubs():
+    fmt = _formatter_class_metrics(_formatter_overload_class("from typing import overload"))
+    assert fmt.method_count == 3
+    assert fmt.lcom4 == 1
+    assert len(fmt.methods) == 3
+
+
+def test_python_class_cohesion_ignores_typing_overload_decorator():
+    src = (
+        _formatter_overload_class("import typing")
+        .decode()
+        .replace("@overload\n", "@typing.overload\n")
+    )
+    fmt = _formatter_class_metrics(src.encode())
+    assert fmt.method_count == 3
+    assert fmt.lcom4 == 1
+
+
+def test_python_class_cohesion_ignores_aliased_overload_decorator():
+    src = (
+        _formatter_overload_class("import typing as t")
+        .decode()
+        .replace("@overload\n", "@t.overload\n")
+    )
+    fmt = _formatter_class_metrics(src.encode())
+    assert fmt.method_count == 3
+    assert fmt.lcom4 == 1
+
+
 def test_typescript_class_cohesion():
     classes = _walk_classes("typescript/classes.ts", "typescript")
     cohesive = classes.get("Cohesive")

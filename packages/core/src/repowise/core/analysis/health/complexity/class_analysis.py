@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, NamedTuple
 
+from ....ingestion.python_overload import is_python_overload
 from ....test_paths import is_test_related_path
 from .ast_utils import _IDENTIFIER_SUFFIX, _find_name
 from .languages import LanguageNodeMap, get_language_map
@@ -91,12 +92,15 @@ def _text(node: Node) -> str:
     return node.text.decode("utf-8", errors="replace") if node.text is not None else ""
 
 
-def _collect_class_body(class_node: Node, lmap: LanguageNodeMap) -> _ClassBody:
+def _collect_class_body(
+    class_node: Node, lmap: LanguageNodeMap, language: str, source: str
+) -> _ClassBody:
     """Direct method, field-declaration and nested-class nodes of *class_node*.
 
     Stops at nested types (their members are not ours) and does not descend
     into a method body (nested local defs roll up into the method, mirroring
-    ``_collect_function_nodes``).
+    ``_collect_function_nodes``). Python ``@overload`` stubs are dropped here
+    so they never reach the method counts or LCOM4.
     """
     body = _ClassBody([], [], [])
     stack: list[Node] = list(class_node.children)
@@ -105,6 +109,8 @@ def _collect_class_body(class_node: Node, lmap: LanguageNodeMap) -> _ClassBody:
         if node.type in lmap.class_kinds:
             body.nested.append(node)
         elif node.type in lmap.function_kinds:
+            if language == "python" and is_python_overload(node, source):
+                continue
             body.methods.append(node)
         elif node.type in lmap.field_decl_kinds:
             body.field_decls.append(node)
@@ -605,6 +611,7 @@ def _collect_classes(
     source: bytes,
     fc_by_node_id: dict[int, FunctionComplexity],
     code_lines: CodeLineIndex,
+    language: str,
 ) -> list[ClassComplexity]:
     """Build ``ClassComplexity`` for every class-like node in the file.
 
@@ -613,9 +620,10 @@ def _collect_classes(
     """
     if not lmap.class_kinds:
         return []
+    source_str = source.decode("utf-8", errors="replace")
     classes: list[ClassComplexity] = []
     for class_node in class_nodes:
-        body = _collect_class_body(class_node, lmap)
+        body = _collect_class_body(class_node, lmap, language, source_str)
         method_fcs = [fc_by_node_id[m.id] for m in body.methods if m.id in fc_by_node_id]
         # Keep nodes and FCs aligned (a method missing from the function
         # pass — unusual — drops out of both).
