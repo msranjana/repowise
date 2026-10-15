@@ -448,11 +448,11 @@ class _Cutter:
             valueless=self.valueless,
         )
         returns = self._own_bindings_dropped(span, s, e, returns)
-        if _trailing_constant_output(span, s, e, returns, self.def_lines, self.lmap):
-            return None
         if self.carried:
             written = {v for v in self.carried if any(s <= ln <= e for ln in self.def_lines[v])}
             returns = tuple(sorted(set(returns) | written))
+        if _trailing_constant_output(span, s, e, returns, self.def_lines, self.lmap):
+            return None
         params = self._with_inouts(i, j, s, params, returns)
         if params is None or len(returns) > self.max_returns:
             return None
