@@ -80,6 +80,7 @@ from .slice import (
     _scan_for,
     _scoped_resource_indexes,
     _stmt_assigns,
+    _trailing_constant_output,
     _unwrap_container,
     _valueless_lines,
     _var_lines,
@@ -447,6 +448,8 @@ class _Cutter:
             valueless=self.valueless,
         )
         returns = self._own_bindings_dropped(span, s, e, returns)
+        if _trailing_constant_output(span, s, e, returns, self.def_lines, self.lmap):
+            return None
         if self.carried:
             written = {v for v in self.carried if any(s <= ln <= e for ln in self.def_lines[v])}
             returns = tuple(sorted(set(returns) | written))
