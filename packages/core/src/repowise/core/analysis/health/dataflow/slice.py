@@ -1177,8 +1177,9 @@ def _writes_var(node: Node, var: str) -> bool:
 
 # Scalar literal node types across the supported grammars, read off node
 # kinds rather than text (cf. ``complexity/dispatch.py`` and the per-language
-# ``perf/dialects`` scalar sets). Deliberately scalars only: ``[]`` / ``{}``
-# are left alone, conservatively still returned.
+# ``perf/dialects`` scalar sets: csharp/rust ``integer_literal``, cpp/kotlin
+# ``number_literal``, …). Deliberately scalars only: ``[]`` / ``{}`` are left
+# alone, conservatively still returned.
 _CONSTANT_LITERAL_KINDS = frozenset(
     {
         "true",
@@ -1188,9 +1189,15 @@ _CONSTANT_LITERAL_KINDS = frozenset(
         "nil",
         "undefined",
         "null_literal",
+        "boolean_literal",
         "integer",
+        "integer_literal",
         "float",
+        "float_literal",
+        "real_literal",
+        "floating_point_literal",
         "number",
+        "number_literal",
         "string",
         "concatenated_string",
         "string_literal",
@@ -1205,13 +1212,17 @@ _CONSTANT_LITERAL_KINDS = frozenset(
         "decimal_floating_point_literal",
         "hex_floating_point_literal",
         "int_literal",
-        "float_literal",
         "imaginary_literal",
     }
 )
+# tree-sitter-kotlin spells ``true`` / ``false`` / ``null`` as bare
+# ``identifier`` nodes; matching on kind alone would accept every name.
+_LITERAL_IDENTIFIER_TEXTS = frozenset({"true", "false", "null"})
 _UNARY_KINDS = frozenset({"unary_expression", "unary_operator"})
 _PAREN_KINDS = frozenset({"parenthesized_expression"})
-_DECLARATOR_KINDS = frozenset({"variable_declarator", "var_spec", "const_spec"})
+_DECLARATOR_KINDS = frozenset(
+    {"variable_declarator", "init_declarator", "var_spec", "const_spec"}
+)
 
 
 def _is_literal_value(node: Node | None) -> bool:
@@ -1244,9 +1255,27 @@ def _is_literal_value(node: Node | None) -> bool:
         return _is_literal_value(operand)
     if cur.type in _CONSTANT_LITERAL_KINDS:
         return True
+    if cur.type == "identifier":
+        text = (cur.text or b"").decode("utf-8", "replace")
+        return text in _LITERAL_IDENTIFIER_TEXTS
     if cur.type == "template_string":
         return not any(c.type == "template_substitution" for c in cur.children)
     return False
+
+
+def _declarator_rhs(decl: Node) -> Node | None:
+    """Initializer on a single-name declarator, or None.
+
+    Most grammars expose a ``value`` / ``right`` field. C#'s
+    ``variable_declarator`` leaves the RHS as a field-less named child beside
+    the ``name`` (mirroring ``dataflow/dialects/csharp.py``).
+    """
+    value = decl.child_by_field_name("value") or decl.child_by_field_name("right")
+    if value is not None:
+        return value
+    name = decl.child_by_field_name("name")
+    rest = [c for c in decl.named_children if c != name]
+    return rest[0] if len(rest) == 1 else None
 
 
 def _trailing_value_node(last: Node, var: str, lmap: LanguageNodeMap) -> Node | None:
@@ -1260,7 +1289,24 @@ def _trailing_value_node(last: Node, var: str, lmap: LanguageNodeMap) -> Node | 
         decls = [c for c in effective.named_children if _writes_var(c, var)]
         if len(decls) != 1:
             return None
-        value = decls[0].child_by_field_name("value") or decls[0].child_by_field_name("right")
+        writer = decls[0]
+        # C#: ``local_declaration_statement`` → ``variable_declaration`` (no
+        # value field) → ``variable_declarator`` (holds the initializer).
+        if writer.type not in _DECLARATOR_KINDS:
+            nested = [
+                c
+                for c in writer.named_children
+                if c.type in _DECLARATOR_KINDS and _writes_var(c, var)
+            ]
+            if len(nested) > 1:
+                return None
+            if len(nested) == 1:
+                writer = nested[0]
+        value = (
+            _declarator_rhs(writer)
+            if writer.type in _DECLARATOR_KINDS
+            else writer.child_by_field_name("value") or writer.child_by_field_name("right")
+        )
         if value is None:
             # Go's ``short_var_declaration`` carries the values on the
             # statement itself (``left`` / ``right`` expression lists).
@@ -1273,7 +1319,7 @@ def _trailing_value_node(last: Node, var: str, lmap: LanguageNodeMap) -> Node | 
     if effective.type in _DECLARATOR_KINDS:
         if not _writes_var(effective, var):
             return None
-        return effective.child_by_field_name("value") or effective.child_by_field_name("right")
+        return _declarator_rhs(effective)
     if effective.type in lmap.augmented_assign_kinds:
         return None
     if effective.type not in lmap.assignment_kinds:
