@@ -80,11 +80,11 @@ from .slice import (
     _scan_for,
     _scoped_resource_indexes,
     _stmt_assigns,
-    _trailing_constant_output,
     _unwrap_container,
     _valueless_lines,
     _var_lines,
 )
+from .slice_writes import _trailing_constant_output
 from .span import exiting_guard, is_comment, section_heads
 
 if TYPE_CHECKING:

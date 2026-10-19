@@ -1597,7 +1597,7 @@ def test_trailing_constant_literal_kinds_match_vendored_grammars(language, ext, 
     # Kind / text gate the constant-tail drop uses: CI must see the spellings
     # find_extractions cannot exercise for dialects without a def/use map.
     from repowise.core.analysis.health.dataflow.parsing import parse_source
-    from repowise.core.analysis.health.dataflow.slice import _is_literal_value
+    from repowise.core.analysis.health.dataflow.slice_writes import _is_literal_value
 
     if _get_language(language) is None:
         pytest.skip(f"tree-sitter language pack missing for {language}")
